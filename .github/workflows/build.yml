@@ -39,8 +39,10 @@ jobs:
           # The mimalloc build used in CI lacks mi_malloc_size, which TiltedCore calls.
           # mi_usable_size does the same thing, and /alternatename tells the linker
           # to use it only if mi_malloc_size is otherwise unresolved.
-          sed -i 's|add_syslinks("Version", "User32")|add_syslinks("Version", "User32")\n    add_ldflags("/alternatename:mi_malloc_size=mi_usable_size", {force = true})|' xmake.lua
-          echo "Patched line in xmake.lua (must show up below):"
+          # TweakXL is a DLL, so the flag must go into shflags (ldflags is for .exe files).
+          # Both are added to be safe.
+          sed -i 's|add_syslinks("Version", "User32")|add_syslinks("Version", "User32")\n    add_ldflags("/alternatename:mi_malloc_size=mi_usable_size", {force = true})\n    add_shflags("/alternatename:mi_malloc_size=mi_usable_size", {force = true})|' xmake.lua
+          echo "Patched lines in xmake.lua (two must show up below):"
           grep -n alternatename xmake.lua
 
       - name: Install xmake
@@ -49,9 +51,30 @@ jobs:
           xmake-version: latest
 
       - name: Build
+        id: build
+        continue-on-error: true
         run: |
           xmake f -m release -y
           xmake build -y
+
+      - name: Diagnose link failure
+        if: steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "=== Link command (verbose re-run, last lines) ==="
+          xmake build -y -v 2>&1 | tail -n 25 || true
+          echo "=== mimalloc and TiltedCore libraries found ==="
+          for root in "$HOME/.xmake" "$(cygpath -u "$LOCALAPPDATA")/.xmake"; do
+            find "$root" \( -ipath "*mimalloc*" -o -ipath "*tiltedcore*" \) -name "*.lib" 2>/dev/null || true
+          done | sort -u | while read -r f; do
+            echo "--- $f"
+            echo "mi_malloc_size mentions: $(grep -a -c 'mi_malloc_size' "$f" || true)"
+            echo "mi_usable_size mentions: $(grep -a -c 'mi_usable_size' "$f" || true)"
+          done
+
+      - name: Stop here if the build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
 
       - name: Package
         shell: bash
