@@ -33,6 +33,15 @@ jobs:
           git submodule update --init --recursive
           git log -1 --oneline
 
+      - name: Link mimalloc explicitly (fixes unresolved mi_malloc_size)
+        shell: bash
+        run: |
+          # TiltedCore needs mimalloc, but it was not being linked in this CI build.
+          # This adds it to the package lists in xmake.lua.
+          sed -i 's/"tiltedcore", "yaml-cpp")/"tiltedcore", "yaml-cpp", "mimalloc")/g' xmake.lua
+          echo "Lines mentioning mimalloc in xmake.lua (expect 2):"
+          grep -n mimalloc xmake.lua
+
       - name: Install xmake
         uses: xmake-io/github-action-setup-xmake@v1
         with:
